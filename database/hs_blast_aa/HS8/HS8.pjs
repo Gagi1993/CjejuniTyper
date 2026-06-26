@@ -1,0 +1,22 @@
+{
+  "version": "1.2",
+  "dbname": "HS8",
+  "dbtype": "Protein",
+  "db-version": 5,
+  "description": "HS8/HS8.faa",
+  "number-of-letters": 105,
+  "number-of-sequences": 5,
+  "last-updated": "2026-05-08T09:08:00",
+  "number-of-volumes": 1,
+  "bytes-total": 37779,
+  "bytes-to-cache": 239,
+  "files": [
+    "HS8.pdb",
+    "HS8.phr",
+    "HS8.pin",
+    "HS8.pot",
+    "HS8.psq",
+    "HS8.ptf",
+    "HS8.pto"
+  ]
+}

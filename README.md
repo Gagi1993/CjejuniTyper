@@ -8,7 +8,7 @@ It performs in silico Penner HS capsular serotyping, LOS class typing, MLST typi
 
 ## 🔬 Overview
 
-CjejuniTyper analyses *C. jejuni* assemblies using BLAST-based marker detection, full-locus fallback typing, in silico PCR confirmation, and rule-based interpretation.
+CjejuniTyper analyses *C. jejuni* assemblies using BLAST-based marker detection, full-locus HS typing, in silico PCR confirmation, and rule-based interpretation.
 
 The pipeline is intended for reproducible genomic characterisation of *Campylobacter jejuni* from draft genome assemblies and can be integrated into surveillance workflows.
 
@@ -17,7 +17,10 @@ The pipeline is intended for reproducible genomic characterisation of *Campyloba
 ## ⚙️ Features
 
 * Penner HS capsular serotyping
-* Two-step HS typing: specific marker BLAST followed by full-locus BLAST fallback
+* Two-step HS typing:
+
+  * specific marker BLAST
+  * full-locus BLAST fallback
 * Subtype bracketing for selected HS complexes
 * LOS class typing using best-hit BLAST logic
 * MLST typing using the 7-gene *Campylobacter* scheme
@@ -27,7 +30,8 @@ The pipeline is intended for reproducible genomic characterisation of *Campyloba
 * MEOP, T4SS, CDT, capsule and LOS-core status reporting
 * AMR detection using AMRFinder Plus
 * Assembly QC: genome size, GC content and contig count
-* Resume mode and parallel processing
+* Resume mode
+* Parallel processing
 * Optional skip flags for HS, QC, MLST, LOS, VF and AMR modules
 
 ---
@@ -39,7 +43,7 @@ The pipeline is intended for reproducible genomic characterisation of *Campyloba
 * Python 3
 * BLAST
 * AMRFinder Plus
-* Exonerate / `ipcress`
+* Exonerate / ipcress
 * SeqKit
 
 The automatic installer creates a conda/mamba environment named:
@@ -74,33 +78,141 @@ bash CjejuniTyper.sh -U
 
 ## 🧬 Database setup
 
-CjejuniTyper expects the required databases to be available in the `databases/` folder.
+CjejuniTyper expects the required typing databases to be available in the `databases/` folder.
+
+The installer command:
+
+```bash
+bash CjejuniTyper.sh -I
+```
+
+installs software dependencies only. It does **not** create the HS, LOS, VF or MLST typing databases.
 
 Default database paths used by the script:
 
 ```text
 databases/new_hs_db/blast
 databases/hs_specific_aa_per_hs/hs/hs_aa
+databases/hs_blast_aa
 databases/los_db_new
 databases/los_db_specific_markers/LOS_B_windows/LOS_B_WINDOWS_DB
 databases/vfdb_new
 databases/vfdb/orf11/orf11_db
 databases/mlst/
+databases/primers.txt
+```
+
+No separate `HS2/`, `HS6/` or `HS53/` BLAST database folders are required. HS2, HS6/7 and HS53 are handled through the main HS full-locus database.
+
+---
+
+## 🔧 Building BLAST databases
+
+If only FASTA files are provided, build BLAST databases before running the pipeline.
+
+### HS full-locus database
+
+```bash
+makeblastdb \
+  -in databases/new_hs_db/blast/hs_db_new.fasta \
+  -dbtype nucl \
+  -out databases/new_hs_db/blast/hs_db_new
+```
+
+### HS specific marker database
+
+```bash
+makeblastdb \
+  -in databases/hs_specific_aa_per_hs/hs/hs_aa.fasta \
+  -dbtype nucl \
+  -out databases/hs_specific_aa_per_hs/hs/hs_aa
+```
+
+### HS amino-acid databases for HS8/HS17 bracketing
+
+```bash
+makeblastdb \
+  -in databases/hs_blast_aa/HS8/HS8.fasta \
+  -dbtype prot \
+  -out databases/hs_blast_aa/HS8/HS8
+
+makeblastdb \
+  -in databases/hs_blast_aa/HS17/HS17.fasta \
+  -dbtype prot \
+  -out databases/hs_blast_aa/HS17/HS17
+```
+
+### LOS database
+
+```bash
+makeblastdb \
+  -in databases/los_db_new/LOS.fasta \
+  -dbtype nucl \
+  -out databases/los_db_new/LOS
+```
+
+### LOS B-window database
+
+```bash
+makeblastdb \
+  -in databases/los_db_specific_markers/LOS_B_windows/LOS_B_WINDOWS_DB.fasta \
+  -dbtype nucl \
+  -out databases/los_db_specific_markers/LOS_B_windows/LOS_B_WINDOWS_DB
+```
+
+### Virulence factor database
+
+```bash
+makeblastdb \
+  -in databases/vfdb_new/vf/vf.fasta \
+  -dbtype nucl \
+  -out databases/vfdb_new/vf/vf
+```
+
+### cstII database
+
+```bash
+makeblastdb \
+  -in databases/vfdb_new/cstII/cstII.fasta \
+  -dbtype nucl \
+  -out databases/vfdb_new/cstII/cstII
+```
+
+### ORF11 database
+
+```bash
+makeblastdb \
+  -in databases/vfdb/orf11/orf11_db.fasta \
+  -dbtype nucl \
+  -out databases/vfdb/orf11/orf11_db
+```
+
+### MLST databases
+
+```bash
+makeblastdb -in databases/mlst/aspA.fasta -dbtype nucl -out databases/mlst/aspA
+makeblastdb -in databases/mlst/glnA.fasta -dbtype nucl -out databases/mlst/glnA
+makeblastdb -in databases/mlst/gltA.fasta -dbtype nucl -out databases/mlst/gltA
+makeblastdb -in databases/mlst/glyA.fasta -dbtype nucl -out databases/mlst/glyA
+makeblastdb -in databases/mlst/pgm.fasta  -dbtype nucl -out databases/mlst/pgm
+makeblastdb -in databases/mlst/tkt.fasta  -dbtype nucl -out databases/mlst/tkt
+makeblastdb -in databases/mlst/uncA.fasta -dbtype nucl -out databases/mlst/uncA
 ```
 
 ### T4SS database setup
 
-Run once, if using T4SS detection:
+Run once if using T4SS detection.
 
 ```bash
 grep -A1 "virB\|virD4" campy_gene.fas > virB_virD4.fasta
-mkdir -p databases/vfdb/blast/T4SS
-cp virB_virD4.fasta databases/vfdb/blast/T4SS/T4SS.fasta
+
+mkdir -p databases/vfdb_new/T4SS
+cp virB_virD4.fasta databases/vfdb_new/T4SS/T4SS.fasta
 
 makeblastdb \
-  -in databases/vfdb/blast/T4SS/T4SS.fasta \
+  -in databases/vfdb_new/T4SS/T4SS.fasta \
   -dbtype nucl \
-  -out databases/vfdb/blast/T4SS/T4SS
+  -out databases/vfdb_new/T4SS/T4SS.fasta
 ```
 
 ---
@@ -214,6 +326,7 @@ bash CjejuniTyper.sh \
 * `-los` : LOS class BLAST database directory
 * `-los_b_windows` : LOS class B window database directory
 * `-vf` : virulence factor BLAST database directory
+* `-orf11_db` : ORF11 BLAST database
 * `-t` : total threads, default `32`
 * `-j` : parallel jobs, default `1`
 * `-r` : resume previous run and skip completed samples
@@ -246,16 +359,16 @@ The asterisk `*` means the subtype is predicted from genomic data and is not con
 
 ### HS complexes
 
-| Complex | Member serotypes | Subtype/bracket method |
-|---|---|---|
-| HS4c | HS4, HS13, HS16, HS43, HS50, HS62, HS63, HS64, HS65 | Mu_HS4B PCR / BLAST winner |
-| HS6_7c | HS6, HS7 | no subtype bracket |
-| HS8_17c | HS8, HS17 | AA blastx |
-| HS5_31c | HS5, HS31 | Mu_HS5 in silico PCR |
-| HS23_36c | HS23, HS36 | poly-G/C tract |
-| HS1c | HS1, HS44 | BLAST winner |
-| HS15c | HS15, HS31, HS58 | Mu_HS58 in silico PCR |
-| HS45c | HS45, HS32, HS60 | BLAST winner |
+| Complex  | Member serotypes                                    | Subtype/bracket method     |
+| -------- | --------------------------------------------------- | -------------------------- |
+| HS4c     | HS4, HS13, HS16, HS43, HS50, HS62, HS63, HS64, HS65 | Mu_HS4B PCR / BLAST winner |
+| HS6_7c   | HS6, HS7                                            | no subtype bracket         |
+| HS8_17c  | HS8, HS17                                           | AA blastx                  |
+| HS5_31c  | HS5, HS31                                           | Mu_HS5 in silico PCR       |
+| HS23_36c | HS23, HS36                                          | poly-G/C tract             |
+| HS1c     | HS1, HS44                                           | BLAST winner               |
+| HS15c    | HS15, HS31, HS58                                    | Mu_HS58 in silico PCR      |
+| HS45c    | HS45, HS32, HS60                                    | BLAST winner               |
 
 Standalone HS types include:
 
@@ -304,9 +417,10 @@ CjejuniTyper/
 ├── LICENSE
 ├── .gitignore
 ├── databases/
-├── example_data/
-└── results/
+└── example_data/
 ```
+
+The `results/` directory is generated when the pipeline is run and does not need to be included in the repository.
 
 ---
 
@@ -322,8 +436,8 @@ bash CjejuniTyper.sh -i example_data/ -o results/
 
 If you use this tool, please cite:
 
-Jurić D. et al.  
-*In silico typing and genomic characterisation of Campylobacter jejuni from whole-genome sequencing data.*  
+Jurić D. et al.
+*In silico typing and genomic characterisation of Campylobacter jejuni from whole-genome sequencing data.*
 (Manuscript in preparation)
 
 ---
@@ -336,8 +450,8 @@ This project is licensed under the MIT License.
 
 ## 👤 Author
 
-Dragan Jurić  
-Croatian Institute of Public Health  
+Dragan Jurić
+Croatian Institute of Public Health
 Zagreb, Croatia
 
 ---

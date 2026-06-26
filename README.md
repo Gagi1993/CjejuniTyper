@@ -77,6 +77,12 @@ Install the conda/mamba environment:
 bash CjejuniTyper.sh -I
 ```
 
+Activate the conda/mamba environment:
+
+```bash
+conda activate cjejuni_typer
+```
+
 After installation, update the AMRFinder database:
 
 ```bash

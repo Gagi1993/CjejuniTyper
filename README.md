@@ -54,9 +54,24 @@ cjejuni_typer
 
 ---
 
-## 🚀 Installation
+## 🚀 Installation and setup
 
-### Automatic install
+Clone the repository:
+
+```bash
+git clone https://github.com/Gagi1993/CjejuniTyper
+cd CjejuniTyper/
+```
+
+For private repositories, GitHub may ask for your username and a personal access token when cloning.
+
+Check help:
+
+```bash
+bash CjejuniTyper.sh -h
+```
+
+Install the conda/mamba environment:
 
 ```bash
 bash CjejuniTyper.sh -I
@@ -66,6 +81,12 @@ After installation, update the AMRFinder database:
 
 ```bash
 bash CjejuniTyper.sh -amrfinder_db
+```
+
+Run the pipeline on example data:
+
+```bash
+bash CjejuniTyper.sh -i example_data/ -o results/
 ```
 
 ### Update installed environment

@@ -1,4 +1,11 @@
-#!/bin/bash
+#!/usr/bin/env bash
+
+if [ -z "${BASH_VERSION:-}" ]; then
+    echo "ERROR: CjejuniTyper requires Bash." >&2
+    echo "Please run: bash CjejuniTyper.sh [options]" >&2
+    exit 1
+fi
+
 set -euo pipefail
 shopt -s nullglob
 
@@ -71,12 +78,14 @@ Optional:
   -los        LOS class BLAST database directory     [default: databases/los_db_new]
   -los_b_windows LOS class B window database directory [default: databases/los_db_specific_markers/LOS_B_windows/]
   -vf         Virulence factor BLAST database dir    [default: databases/vfdb_new]
+  -species_sketch  Mash reference sketch for C. jejuni/C. coli species confirmation     [default: databases/species/campylobacter_ref.msh]
   -t          Threads per job                        [default: 32]
   -j          Parallel jobs                          [default: 1]
   -r          Resume — skip completed samples
   --skip_hs   Skip all HS (Penner) typing — HS_TYPE will be "-" for all samples
   --skip_qc    Skip assembly QC
   --skip_mlst  Skip MLST typing
+  --skip_species  Skip C. jejuni/C. coli species confirmation
   --skip_los   Skip LOS typing
   --skip_vf    Skip virulence factor typing
   --skip_amr   Skip AMRFinder detection
@@ -96,7 +105,7 @@ Examples:
 
 Environment:
   Conda/mamba environment: cjejuni_typer
-  Packages: blast, ncbi-amrfinderplus, exonerate (ipcress), seqkit
+  Packages: blast, ncbi-amrfinderplus, exonerate (ipcress), seqkit, mash
   Python 3 (system) used for interpretation — no conda needed
 
 T4SS database setup (run once):
@@ -165,6 +174,7 @@ HS_DB="databases/new_hs_db/blast"
 HS_MARKER="databases/hs_specific_aa_per_hs/hs/hs_aa"
 LOS_DB="databases/los_db_new"
 LOS_B_WINDOW_DB="databases/los_db_specific_markers/LOS_B_windows/LOS_B_WINDOWS_DB"
+SPECIES_SKETCH="databases/species/campylobacter_ref.msh"
 VF_DB="databases/vfdb_new"
 ORF11_DB="databases/vfdb/orf11/orf11_db"
 THREADS=32
@@ -173,6 +183,7 @@ INSTALL=0
 UPDATE=0
 AMR_DB_UPDATE=0
 RESUME=0
+SKIP_SPECIES=0
 SKIP_HS=0
 SKIP_QC=0
 SKIP_MLST=0
@@ -206,11 +217,13 @@ while [[ $# -gt 0 ]]; do
     -los_b_windows) LOS_B_WINDOW_DB="$2"; shift 2 ;;
     -vf)     VF_DB="$2";    shift 2 ;;
     -orf11_db) ORF11_DB="$2"; shift 2 ;;
+    -species_sketch) SPECIES_SKETCH="$2"; shift 2 ;;
     -t)      THREADS="$2";  shift 2 ;;
     -j)      JOBS="$2";     shift 2 ;;
     -r)      RESUME=1;      shift ;;
     --skip_hs) SKIP_HS=1;  shift ;;
     --skip_qc)   SKIP_QC=1; shift ;;
+    --skip_species) SKIP_SPECIES=1; shift ;;
     --skip_mlst) SKIP_MLST=1; shift ;;
     --skip_los)  SKIP_LOS=1; shift ;;
     --skip_vf)   SKIP_VF=1; shift ;;
@@ -242,10 +255,10 @@ if [ "$INSTALL" -eq 1 ]; then
   else
     $PKG_MANAGER create -y -n "$ENV_NAME" \
       -c conda-forge -c bioconda \
-      blast ncbi-amrfinderplus exonerate seqkit
+      blast ncbi-amrfinderplus exonerate seqkit mash=2.3
     echo ""
     echo "✓ Environment '$ENV_NAME' installed."
-    echo "  Packages: blast, ncbi-amrfinderplus, exonerate (ipcress), seqkit"
+    echo "  Packages: blast, ncbi-amrfinderplus, exonerate (ipcress), seqkit, mash"
     echo ""
     echo "Next: update the AMRFinder database:"
     echo "  $0 -amrfinder_db"
@@ -263,7 +276,7 @@ if [ "$UPDATE" -eq 1 ]; then
   echo "Updating conda environment: $ENV_NAME ..."
   $PKG_MANAGER update -y -n "$ENV_NAME" \
     -c conda-forge -c bioconda \
-    blast ncbi-amrfinderplus exonerate seqkit
+    blast ncbi-amrfinderplus exonerate seqkit mash=2.3
   echo "✓ Environment updated."
   exit 0
 fi
@@ -335,6 +348,20 @@ clean_query() {
     tr -d '\r' < "$qf" | awk 'NF'
   fi
 }
+
+
+run_mash() {
+  if [ -n "$PKG_MANAGER" ] && \
+     $PKG_MANAGER env list 2>/dev/null | grep -q "^${ENV_NAME}[[:space:]]"; then
+    $PKG_MANAGER run -n "$ENV_NAME" mash "$@"
+  elif command -v mash >/dev/null 2>&1; then
+    mash "$@"
+  else
+    echo "ERROR: mash not found. Run '$0 -I' to install the conda environment."
+    exit 1
+  fi
+}
+
 
 run_amrfinder() {
   if [ -n "$PKG_MANAGER" ] && $PKG_MANAGER env list 2>/dev/null | grep -q "^${ENV_NAME}[[:space:]]"; then
@@ -553,6 +580,162 @@ echo ""
 
 fi
 
+
+########################################
+# SPECIES CONFIRMATION — Mash
+########################################
+
+SPECIES_FILE="$OUTDIR/species_report.tsv"
+SPECIES_RAW="$OUTDIR/species_mash"
+mkdir -p "$SPECIES_RAW"
+
+if [ "$SKIP_SPECIES" -eq 1 ]; then
+
+  echo "[2/7] Species confirmation... SKIPPED"
+
+  printf "ID\tSPECIES\tMASH_IDENTITY\tMASH_REF\tSPECIES_STATUS\tPOSSIBLE_MIXED_JEJUNI_COLI\n" > "$SPECIES_FILE"
+
+  while IFS= read -r sample; do
+    printf "%s\t-\t-\t-\tNOT_CHECKED\tNOT_CHECKED\n" "$sample"
+  done < "$SAMPLES" >> "$SPECIES_FILE"
+
+else
+
+  echo "[2/7] Species confirmation... RUNNING"
+
+  [ -f "$SPECIES_SKETCH" ] || {
+    echo "ERROR: Mash species sketch not found: $SPECIES_SKETCH"
+    exit 1
+  }
+
+  printf "ID\tSPECIES\tMASH_IDENTITY\tMASH_REF\tSPECIES_STATUS\tPOSSIBLE_MIXED_JEJUNI_COLI\n" > "$SPECIES_FILE"
+
+  for f in "$INPUT"/*.{fa,fasta,fna}; do
+    [ -f "$f" ] || continue
+
+    n=$(basename "$f")
+    n=${n%.*}
+
+    raw="$SPECIES_RAW/${n}.txt"
+
+    # Run Mash screen
+    run_mash screen "$SPECIES_SKETCH" "$f" > "$raw"
+
+    jejuni_ratio=$(awk '$5=="c.jejuni.fna" {
+        split($2,a,"/")
+        if (a[2] > 0) print a[1]/a[2]
+    }' "$raw")
+
+    coli_ratio=$(awk '$5=="c.coli.fna" {
+        split($2,a,"/")
+        if (a[2] > 0) print a[1]/a[2]
+    }' "$raw")
+
+    jejuni_ratio=${jejuni_ratio:-0}
+    coli_ratio=${coli_ratio:-0}
+
+    mixed_status="OK"
+
+    if awk -v j="$jejuni_ratio" -v c="$coli_ratio" \
+        'BEGIN {exit !(j > 0.5 && c > 0.5)}'; then
+        mixed_status="POSSIBLE_MIXED_JEJUNI_COLI"
+    fi
+
+
+
+    # Same principle as campy.sh:
+    # only consider hits with shared-hash ratio > 0.5.
+    # If more than one passes, retain the one with the highest ratio.
+    best_line=$(
+      awk '
+      {
+        split($2,a,"/")
+        if (a[2] > 0) {
+          ratio=a[1]/a[2]
+          if (ratio > 0.5 && ratio > best) {
+            best=ratio
+            line=$0
+          }
+        }
+      }
+      END {
+        if (line != "") print line
+      }' "$raw"
+    )
+
+    if [ -z "$best_line" ]; then
+      printf "%s\tUNKNOWN\t-\t-\tSPECIES_UNCERTAIN\t%s\n" "$n" "$mixed_status" >> "$SPECIES_FILE"
+      continue
+    fi
+
+    mash_identity=$(echo "$best_line" | awk '{print $1}')
+    mash_ref=$(echo "$best_line" | awk '{print $5}')
+
+    case "$mash_ref" in
+      c.jejuni.fna)
+        species="C_jejuni"
+        status="PASS"
+        ;;
+      c.coli.fna)
+        species="C_coli"
+        status="NON_TARGET_SPECIES"
+        ;;
+      *)
+        species="UNKNOWN"
+        status="SPECIES_UNCERTAIN"
+        ;;
+    esac
+
+    printf "%s\t%s\t%s\t%s\t%s\t%s\n" "$n" "$species" "$mash_identity" "$mash_ref" "$status" "$mixed_status" >> "$SPECIES_FILE"
+
+  done
+fi
+
+echo "Species confirmation results: $SPECIES_FILE"
+
+########################################
+# BUILD C. JEJUNI TARGET LIST
+########################################
+
+TARGET_FASTAS=()
+
+for f in "$INPUT"/*.{fa,fasta,fna}; do
+  [ -f "$f" ] || continue
+
+  n=$(basename "$f")
+  n=${n%.*}
+
+  status=$(awk -F'\t' -v id="$n" '
+    NR>1 && $1==id {print $5; exit}
+  ' "$SPECIES_FILE")
+
+  if [ "$SKIP_SPECIES" -eq 1 ] || [ "$status" = "PASS" ]; then
+    TARGET_FASTAS+=("$f")
+  fi
+done
+
+N_TARGET=${#TARGET_FASTAS[@]}
+
+echo "  C. jejuni assemblies accepted for typing: $N_TARGET/$N_SAMPLES"
+
+if [ "$N_TARGET" -eq 0 ]; then
+  echo "ERROR: No C. jejuni assemblies passed species confirmation."
+  echo "See: $SPECIES_FILE"
+  exit 2
+fi
+
+TARGET_SAMPLES="$OUTDIR/cjejuni_targets.txt"
+> "$TARGET_SAMPLES"
+
+for f in "${TARGET_FASTAS[@]}"; do
+  n=$(basename "$f")
+  n=${n%.*}
+  printf "%s\n" "$n" >> "$TARGET_SAMPLES"
+done
+
+echo ""
+
+
 ########################################
 # MLST TYPING — 7-gene allele-based (pubMLST scheme)
 # Genes: aspA, glnA, gltA, glyA, pgm, tkt, uncA
@@ -584,7 +767,7 @@ MLST_GENES="aspA glnA gltA glyA pgm tkt uncA"
 echo "[2/6] MLST typing... RUNNING"
 mkdir -p "$MLST_RAW"
 
-for f in "$INPUT"/*.{fa,fasta,fna}; do
+for f in "${TARGET_FASTAS[@]}"; do
   [ -f "$f" ] || continue
   n=$(basename "$f"); n=${n%.*}
   out_mlst="$MLST_RAW/${n}_mlst.txt"
@@ -693,12 +876,12 @@ HS_MARKER_DB="$HS_MARKER"
 HS_FULLLOCUS_DB="$HS_DB/hs_db_new"
 
 ########################################
-# STEP 1 — Marker gene BLAST (all samples)
+# STEP 1 — Marker gene BLAST (confirmed C. jejuni)
 ########################################
 
-echo "  [Step 1] Marker gene BLAST (all samples)..."
+echo "  [Step 1] Marker gene BLAST (confirmed C. jejuni only)..."
 
-for f in "$INPUT"/*.{fa,fasta,fna}; do
+for f in "${TARGET_FASTAS[@]}"; do
   [ -f "$f" ] || continue
   n=$(basename "$f"); n=${n%.*}
   out_marker="$OUTDIR/hs_blast_raw/${n}_marker.blast"
@@ -811,13 +994,13 @@ FULLLOCUS_SAMPLES="$OUTDIR/fulllocus_samples.txt"
 awk 'NR>1 && $3=="NONE" {print $1}' "$OUTDIR/hs_marker_calls.tsv" > "$FULLLOCUS_SAMPLES"
 
 ########################################
-# STEP 2 — Full-locus BLAST (ALL samples)
+# STEP 2 — Full-locus BLAST (confirmed C. jejuni)
 # Needed for conflict resolution and fallback
 ########################################
 
-echo "  [Step 2] Full-locus BLAST (all samples)..."
+echo "  [Step 2] Full-locus BLAST (confirmed C. jejuni)..."
 
-for f in "$INPUT"/*.{fa,fasta,fna}; do
+for f in "${TARGET_FASTAS[@]}"; do
   [ -f "$f" ] || continue
   n=$(basename "$f"); n=${n%.*}
   out_full="$OUTDIR/hs_blast_raw/${n}_fulllocus.blast"
@@ -845,11 +1028,11 @@ for f in "$INPUT"/*.{fa,fasta,fna}; do
 done
 wait
 
-# Multi-gene BLAST for HS2/HS6/HS53 (all samples)
+# Multi-gene BLAST for HS2/HS6/HS53 (confirmed C. jejuni)
 for mg in HS2 HS6 HS53; do
   mg_db="$HS_DB/$mg/$mg"
   [ -f "${mg_db}.nin" ] || continue
-  for f in "$INPUT"/*.{fa,fasta,fna}; do
+  for f in "${TARGET_FASTAS[@]}"; do
     [ -f "$f" ] || continue
     n=$(basename "$f"); n=${n%.*}
     out_mg="$OUTDIR/hs_blast_raw/${n}_${mg}.blast"
@@ -1401,10 +1584,15 @@ else
     "$PRIMERS_FILE" \
     "$IPCRESS_CMD" \
     "$OUTDIR/hs_type.tsv" \
+    "$TARGET_SAMPLES" \
   <<'PYEOF'
 import sys, os, subprocess, tempfile
 
-tsv_in, asm_dir, primers_file, ipcress_cmd, tsv_out = sys.argv[1:6]
+tsv_in, asm_dir, primers_file, ipcress_cmd, tsv_out, target_file = sys.argv[1:7]
+
+with open(target_file) as f:
+    target_samples = {line.strip() for line in f if line.strip()}
+
 pcr_log = tsv_out.replace("hs_type.tsv", "hs_pcr_corrections.tsv")
 
 def run_ipcress(asm, primers_file, ipcress_cmd):
@@ -1452,12 +1640,16 @@ with open(tsv_out, "w") as fo:
         sample = row[0]
         call   = row[1] if len(row) > 1 else "-"
 
+        # Skip non-target species before running ipcress
+        if sample not in target_samples:
+            fo.write("\t".join(row) + "\n")
+            continue
+
         asm = None
         for ext in ["fa","fasta","fna"]:
             p = os.path.join(asm_dir, f"{sample}.{ext}")
             if os.path.exists(p):
                 asm = p; break
-
         if asm:
             hits = run_ipcress(asm, primers_file, ipcress_cmd)
             new_call = None
@@ -1548,9 +1740,9 @@ echo "[4/6] LOS class typing... RUNNING"
 mkdir -p "$OUTDIR/los_blast_raw"
 LOS_COMBINED="$LOS_DB/los"
 
-# One BLAST per sample — save ALL hits at minimum identity 78%
+# One BLAST per confirmed C. jejuni assembly
 # AWK calling logic applies strict/mid/loose thresholds afterwards
-for f in "$INPUT"/*.{fa,fasta,fna}; do
+for f in "${TARGET_FASTAS[@]}"; do
   [ -f "$f" ] || continue
   n=$(basename "$f"); n=${n%.*}
   out_los="$OUTDIR/los_blast_raw/${n}_LOS.blast"
@@ -1600,8 +1792,8 @@ wait
 # files in $INPUT are almost certainly not valid nucleotide FASTA.
 N_EMPTY=$(find "$OUTDIR/los_blast_raw" -name "*_LOS.blast" -size 0 2>/dev/null | wc -l)
 if [ "$N_EMPTY" -gt 0 ]; then
-  echo "  WARNING: $N_EMPTY/$N_SAMPLES samples produced no LOS BLAST hits."
-  if [ "$N_EMPTY" -eq "$N_SAMPLES" ]; then
+  echo "  WARNING: $N_EMPTY/$N_TARGET C. jejuni assemblies produced no LOS BLAST hits."
+  if [ "$N_EMPTY" -eq "$N_TARGET" ]; then
     echo "           ALL samples empty -> assemblies in '$INPUT' are not being parsed as FASTA."
     echo "           Inspect one file:   head -3 \"\$(ls $INPUT/*.{fa,fasta,fna} 2>/dev/null | head -1)\""
     echo "           (look for: gzip/binary content, coordinate-numbered sequence lines,"
@@ -1643,7 +1835,7 @@ if [ ! -f "${LOS_B_WINDOW_DB}.nin" ] && [ ! -f "${LOS_B_WINDOW_DB}.ndb" ]; then
     > "$OUTDIR/los_b_windows.tsv"
 else
 
-for f in "$INPUT"/*.{fa,fasta,fna}; do
+for f in "${TARGET_FASTAS[@]}"; do
   [ -f "$f" ] || continue
   n=$(basename "$f"); n=${n%.*}
   out_bwin="$OUTDIR/los_b_window_hits/${n}_BWIN.blast"
@@ -1687,7 +1879,7 @@ if [ ! -f "${ORF11_DB}.nin" ] && [ ! -f "${ORF11_DB}.ndb" ]; then
   while IFS= read -r s; do printf "%s\tUNKNOWN\n" "$s"; done < "$SAMPLES" > "$ORF11_HITS"
 else
   > "$ORF11_HITS"
-  for f in "$INPUT"/*.{fa,fasta,fna}; do
+  for f in "${TARGET_FASTAS[@]}"; do
     [ -f "$f" ] || continue
     n=$(basename "$f"); n=${n%.*}
     limit_jobs "$JOBS"
@@ -1707,7 +1899,7 @@ else
     ) &
   done
   wait
-  echo "  orf11 hits: $(awk '$2=="YES"' "$ORF11_HITS" | wc -l) / $N_SAMPLES samples positive"
+  echo "  orf11 hits: $(awk '$2=="YES"' "$ORF11_HITS" | wc -l) / $N_TARGET C. jejuni assemblies positive"
 fi
 # Scoring logic:
 #   BEST HIT:   pid * coverage           (no bitscore — removes reference
@@ -2009,7 +2201,7 @@ T4SS_DB="$VF_DB/T4SS/T4SS.fasta"
 VF_GENES_COMBINED=($(grep "^>" "$VF_DB/vf/vf.fasta" \
   | sed 's/^>//' | sed 's/_[0-9]*$//' | sort -u))
 
-for f in "$INPUT"/*.{fa,fasta,fna}; do
+for f in "${TARGET_FASTAS[@]}"; do
   [ -f "$f" ] || continue
   n=$(basename "$f"); n=${n%.*}
 
@@ -2309,9 +2501,9 @@ if [ "$AMR_SKIP" -eq 0 ]; then
   # Uses its own counter/lock so it does NOT touch the global mark_done counter.
   AMR_PROG="$OUTDIR/.done/.amr_progress"
   echo 0 > "$AMR_PROG"
-  echo "  (AMRFinder is the slowest stage; ${N_SAMPLES} genomes at ${JOBS} jobs — please let it run)"
+  echo "  (AMRFinder is the slowest stage; ${N_TARGET} C. jejuni genomes at ${JOBS} jobs — please let it run)"
 
-  for f in "$INPUT"/*.{fa,fasta,fna}; do
+  for f in "${TARGET_FASTAS[@]}"; do
     [ -f "$f" ] || continue
     n=$(basename "$f"); n=${n%.*}
     out_amr="$AMR_RAW/${n}_amr.tsv"
@@ -2335,7 +2527,7 @@ if [ "$AMR_SKIP" -eq 0 ]; then
         c=$(cat "$AMR_PROG" 2>/dev/null || echo 0)
         c=$(( c + 1 ))
         echo "$c" > "$AMR_PROG"
-        echo "  [AMR ${c}/${N_SAMPLES}] $n"
+        echo "  [AMR ${c}/${N_TARGET}] $n"
       ) 8>"$OUTDIR/.done/.amr_lock"
     ) &
   done
@@ -2397,12 +2589,13 @@ echo "[6/6] Interpreting results..."
 python3 - \
   "$OUTDIR/merged.tsv" \
   "$OUTDIR/qc_report.tsv" \
+  "$OUTDIR/species_report.tsv" \
   "${AMR_COMBINED:-/dev/null}" \
   "$OUTDIR/final_los_hs_gbs.tsv" \
 << 'PYEOF'
 import sys, csv, re
 
-in_file, qc_file, amr_file, out_file = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+in_file, qc_file, species_file, amr_file, out_file = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
 
 GBS_HS = {
     "HS1","HS1C","HS1/44","HS1/44C","HS44","HS44C",
@@ -2538,6 +2731,7 @@ INTERP_COLS = [
     "SIALYLATION_GENES","LOS_CORE_STATUS","CAPSULE_KPS","WLAN_STATUS",
 ]
 QC_COLS    = ["genome_size_bp","n_contigs","gc_pct","qc_status","qc_warnings"]
+SPECIES_COLS = ["SPECIES","MASH_IDENTITY","MASH_REF","SPECIES_STATUS", "POSSIBLE_MIXED_JEJUNI_COLI"]
 FRONT_COLS = ["ID","LOS_CLASS","SIALYLATED","HS_TYPE","GBS_RISK"]
 
 # ── Load QC ────────────────────────────────────────────────────────────
@@ -2548,6 +2742,17 @@ try:
             qc[row["ID"]] = row
 except Exception:
     pass
+
+
+# ── Load species confirmation ──────────────────────────────────────────
+species = {}
+try:
+    with open(species_file, newline="") as fs:
+        for row in csv.DictReader(fs, delimiter="\t"):
+            species[row["ID"]] = row
+except Exception:
+    pass
+
 
 # ── Load AMR data ───────────────────────────────────────────────────────
 # From AMRFinder combined TSV:
@@ -2614,8 +2819,8 @@ with open(in_file, newline="") as fi:
     raw_cols = reader.fieldnames or []
     vf_cols  = [c for c in raw_cols if c not in set(FRONT_COLS)]
     # Column order:
-    #   ID | typing | QC | interpretation | AMR genes | VF genes
-    out_cols = FRONT_COLS + QC_COLS + INTERP_COLS + amr_genes + vf_cols
+    #   ID | typing | QC | species | interpretation | AMR genes | VF genes
+    out_cols = FRONT_COLS + QC_COLS + SPECIES_COLS + INTERP_COLS + amr_genes + vf_cols
     rows     = list(reader)
 
 with open(out_file, "w", newline="") as fo:
@@ -2630,13 +2835,37 @@ with open(out_file, "w", newline="") as fo:
         for c in QC_COLS:
             row[c] = q.get(c, "-")
 
-        # interpretation columns
-        row.update(interpret(row))
+        # Species confirmation columns
+        s = species.get(sid, {})
+        for c in SPECIES_COLS:
+            row[c] = s.get(c, "-")
+
+        species_status = row.get("SPECIES_STATUS", "-")
+
+        # Non-target or unresolved species must not receive
+        # C. jejuni-specific typing interpretation
+        if species_status in ("NON_TARGET_SPECIES", "SPECIES_UNCERTAIN"):
+
+            # Clear all biological typing/VF results already present in merged.tsv
+            for c in raw_cols:
+                if c != "ID":
+                    row[c] = "-"
+
+            # Clear derived interpretation fields
+            for c in INTERP_COLS:
+                row[c] = "-"
+
+        else:
+            # PASS or NOT_CHECKED (--skip_species)
+            row.update(interpret(row))
 
         # AMR columns — one per unique gene, "-" if absent
         sample_amr = amr_data.get(sid, {})
         for g in amr_genes:
-            row[g] = sample_amr.get(g, "-")
+            if species_status in ("NON_TARGET_SPECIES", "SPECIES_UNCERTAIN"):
+                row[g] = "-"
+            else:
+                row[g] = sample_amr.get(g, "-")
 
         writer.writerow(row)
 
@@ -2659,6 +2888,7 @@ echo "  Samples processed : $N_SAMPLES"
 N_DONE_FINAL=$(find "$OUTDIR/.done" -maxdepth 1 -name "*.done" -type f | wc -l)
 echo "  Samples tracked   : $N_DONE_FINAL / $N_SAMPLES"
 echo "  QC report         : $OUTDIR/qc_report.tsv"
+echo "  Species report    : $OUTDIR/species_report.tsv"
 echo "  AMR combined      : ${AMR_COMBINED:-N/A}"
 echo "  Started           : $(date -d "@$TIME_START" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -r "$TIME_START" '+%Y-%m-%d %H:%M:%S')"
 echo "  Finished          : $(date '+%Y-%m-%d %H:%M:%S')"

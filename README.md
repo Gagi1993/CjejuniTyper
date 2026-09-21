@@ -113,7 +113,7 @@ The installer command:
 bash CjejuniTyper.sh -I
 ```
 
-installs software dependencies only. It does **not** create the HS, LOS, VF or MLST typing databases.
+installs software dependencies only. It does **not** create the HS, LOS, VF or MLST typing databases. **But databases are currently setup with git clone command.**
 
 Default database paths used by the script:
 
@@ -136,12 +136,13 @@ No separate `HS2/`, `HS6/` or `HS53/` BLAST database folders are required. HS2, 
 ## 🔧 Building BLAST databases
 
 If only FASTA files are provided, build BLAST databases before running the pipeline.
+**Databases are currently setup with git clone command, execute this only if FASTA references are alone**
 
 ### HS full-locus database
 
 ```bash
 makeblastdb \
-  -in databases/new_hs_db/blast/hs_db_new.fasta \
+  -in databases/new_hs_db/blast/new_with_more.fasta \
   -dbtype nucl \
   -out databases/new_hs_db/blast/hs_db_new
 ```
@@ -150,7 +151,7 @@ makeblastdb \
 
 ```bash
 makeblastdb \
-  -in databases/hs_specific_aa_per_hs/hs/hs_aa.fasta \
+  -in databases/hs_specific_aa_per_hs/hs/HS_aa.fasta \
   -dbtype nucl \
   -out databases/hs_specific_aa_per_hs/hs/hs_aa
 ```
@@ -173,7 +174,7 @@ makeblastdb \
 
 ```bash
 makeblastdb \
-  -in databases/los_db_new/LOS.fasta \
+  -in databases/los_db_new/los_class.fasta \
   -dbtype nucl \
   -out databases/los_db_new/LOS
 ```
@@ -182,7 +183,7 @@ makeblastdb \
 
 ```bash
 makeblastdb \
-  -in databases/los_db_specific_markers/LOS_B_windows/LOS_B_WINDOWS_DB.fasta \
+  -in databases/los_db_specific_markers/LOS_B_windows/LOS_B_windows.fasta \
   -dbtype nucl \
   -out databases/los_db_specific_markers/LOS_B_windows/LOS_B_WINDOWS_DB
 ```
@@ -209,7 +210,7 @@ makeblastdb \
 
 ```bash
 makeblastdb \
-  -in databases/vfdb/orf11/orf11_db.fasta \
+  -in databases/vfdb/orf11/orf11.fasta \
   -dbtype nucl \
   -out databases/vfdb/orf11/orf11_db
 ```

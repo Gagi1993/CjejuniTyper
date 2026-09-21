@@ -45,6 +45,7 @@ The pipeline is intended for reproducible genomic characterisation of *Campyloba
 * AMRFinder Plus
 * Exonerate / ipcress
 * SeqKit
+* Mash
 
 The automatic installer creates a conda/mamba environment named:
 

@@ -8,7 +8,7 @@ It performs in silico Penner HS capsular serotyping, LOS class typing, MLST typi
 
 ## 🔬 Overview
 
-CjejuniTyper analyses *C. jejuni* assemblies using BLAST-based marker detection, full-locus HS typing, in silico PCR confirmation, and rule-based interpretation.
+CjejuniTyper first performs Mash-based species confirmation to distinguish *C. jejuni* from  *C. coli*, and then analyses confirmed *C. jejuni* assemblies using BLAST-based marker detection, full-locus HS typing, in silico PCR confirmation, and rule-based interpretation.
 
 The pipeline is intended for reproducible genomic characterisation of *Campylobacter jejuni* from draft genome assemblies and can be integrated into surveillance workflows.
 
@@ -16,6 +16,7 @@ The pipeline is intended for reproducible genomic characterisation of *Campyloba
 
 ## ⚙️ Features
 
+* Mash-based species confirmation of *C. jejuni* and *C. coli* before downstream typing
 * Penner HS capsular serotyping
 * Two-step HS typing:
 
@@ -32,13 +33,14 @@ The pipeline is intended for reproducible genomic characterisation of *Campyloba
 * Assembly QC: genome size, GC content and contig count
 * Resume mode
 * Parallel processing
-* Optional skip flags for HS, QC, MLST, LOS, VF and AMR modules
+* Optional skip flags for species confirmation, HS, QC, MLST, LOS, VF and AMR modules
 
 ---
 
 ## ⚙️ Requirements
 
 * Linux-based operating system
+* Bash
 * Conda or Mamba
 * Python 3
 * BLAST
@@ -46,6 +48,7 @@ The pipeline is intended for reproducible genomic characterisation of *Campyloba
 * Exonerate / ipcress
 * SeqKit
 * Mash
+* CjejuniTyper requires Bash and should be executed using **`bash CjejuniTyper.sh`**. Execution with **`sh CjejuniTyper.sh`** is not supported**!**
 
 The automatic installer creates a conda/mamba environment named:
 
@@ -119,6 +122,7 @@ installs software dependencies only. It does **not** create the HS, LOS, VF or M
 Default database paths used by the script:
 
 ```text
+databases/species/campylobacter_ref.msh
 databases/new_hs_db/blast
 databases/hs_specific_aa_per_hs/hs/hs_aa
 databases/hs_blast_aa
@@ -130,6 +134,7 @@ databases/mlst/
 databases/primers.txt
 ```
 
+The Mash reference sketch contains *C. jejuni* and *C. coli* reference genomes and is used for species confirmation before downstream typing.
 No separate `HS2/`, `HS6/` or `HS53/` BLAST database folders are required. HS2, HS6/7 and HS53 are handled through the main HS full-locus database.
 
 ---
@@ -280,6 +285,10 @@ final_los_hs_gbs.tsv
 
 Main output columns include:
 
+* predicted species
+* Mash identity and reference
+* species confirmation status
+* possible mixed *C. jejuni*/*C. coli* signal
 * genome ID
 * LOS class
 * sialylation status
@@ -302,6 +311,9 @@ Main output columns include:
 * raw virulence factor gene calls
 
 Intermediate output files include module-specific BLAST results, QC reports, MLST output, HS typing tables, LOS typing tables, VF results and AMRFinder outputs.
+Species confirmation also produces:
+* `species_report.tsv` — Mash species assignment and species-confirmation status for every input assembly
+* `cjejuni_targets.txt` — assemblies confirmed as *C. jejuni* and passed to downstream CjejuniTyper analyses
 
 ---
 
@@ -359,6 +371,7 @@ bash CjejuniTyper.sh \
 * `-t` : total threads, default `32`
 * `-j` : parallel jobs, default `1`
 * `-r` : resume previous run and skip completed samples
+* `--skip_species` : skip Mash species confirmation
 * `--skip_hs` : skip HS Penner typing
 * `--skip_qc` : skip assembly QC
 * `--skip_mlst` : skip MLST typing
@@ -458,6 +471,14 @@ The `results/` directory is generated when the pipeline is run and does not need
 ```bash
 bash CjejuniTyper.sh -i example_data/ -o results/
 ```
+
+---
+
+---
+
+## 🧫 Optional contamination screening
+
+Kraken2 is not required for the core CjejuniTyper workflow. A standalone Kraken2 screening script can be used for broader taxonomic contamination assessment of genome assemblies. Kraken2 and a compatible Kraken2 database must be installed separately.
 
 ---
 

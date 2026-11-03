@@ -425,6 +425,8 @@ HS29, HS33_35, HS37, HS38, HS40, HS41, HS42, HS52, HS53, HS55, HS57
 
 LOS class typing is BLAST-based and uses best-hit selection.
 
+The class W reference is the LOS locus of strain M1 (CP001900.1, positions 1,077,510-1,093,825; Richards et al. 2013, Infect Genet Evol 14:200-213).
+
 The script uses strict, mid and loose thresholds based on identity, coverage and bitscore. True mosaic calls such as `I/J` and `I/S` are retained when both hits meet the required coverage.
 
 ---

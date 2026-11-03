@@ -2044,9 +2044,7 @@ END{
         a_pc=_pcov["A"]
         b_pc=_pcov["B"]
 
-        diff_pct=(a_pc>b_pc ?
-                  (a_pc-b_pc)/a_pc :
-                  (b_pc-a_pc)/b_pc) * 100
+        diff_pct=(a_pc>b_pc ? (a_pc-b_pc)/a_pc : (b_pc-a_pc)/b_pc) * 100
 
         # activate ONLY for close A/B competition
         if(diff_pct <= 5.0){
